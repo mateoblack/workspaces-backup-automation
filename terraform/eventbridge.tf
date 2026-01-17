@@ -9,7 +9,7 @@ resource "aws_cloudwatch_event_rule" "backup_schedule" {
 resource "aws_cloudwatch_event_target" "lambda" {
     rule    = aws_cloudwatch_event_rule.backup_schedule.name
     target_id = "WorkspacesBackupLambda" 
-    arn     = "aws_lambda_function.workspaces_image_manager.arn"
+    arn     = aws_lambda_function.workspace_image_manager.arn
 }
 
 resource "aws_lambda_permission" "allow_eventbridge" {

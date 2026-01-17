@@ -1,0 +1,23 @@
+# ssm/restore_runbook.yaml
+schemaVersion: '0.3'
+description: Restore WorkSpace from custom image
+parameters:
+  WorkspaceId:
+    type: String
+    description: ID of the WorkSpace to restore
+  ImageId:
+    type: String
+    description: Image ID to restore from
+mainSteps:
+  - name: RebuildWorkspace
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: workspaces
+      Api: RebuildWorkspaces
+      RebuildWorkspaceRequests:
+        - WorkspaceId: '{{ WorkspaceId }}'
+          ImageId: '{{ ImageId }}'
+    outputs:
+      - Name: RebuildResult
+        Selector: $.FailedRequests
+        Type: String

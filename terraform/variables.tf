@@ -1,7 +1,7 @@
 # variables.tf 
 
 variable "backup_tag_key" {
-    default = "AutoBack" 
+    default = "AutoBackup"
 }
 
 variable "backup_tag_value" {
