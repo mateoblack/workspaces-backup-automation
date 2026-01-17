@@ -1,4 +1,4 @@
-# ssm/restore_runbook.yaml
+# ssm/restore_runbook.yml
 schemaVersion: '0.3'
 description: Restore WorkSpace from custom image
 parameters:
