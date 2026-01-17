@@ -5,7 +5,7 @@ resource "aws_ssm_document" "restore_workspace" {
     document_type = "Automation"
     document_format = "YAML"
 
-    content = file("${path.module}/ssm/restore_runbook.yaml")
+    content = file("${path.module}/../ssm/restore_runbook.yml")
 }
 
 resource "aws_iam_role" "ssm_automation_role" {

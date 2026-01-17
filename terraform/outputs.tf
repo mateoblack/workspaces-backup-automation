@@ -17,5 +17,5 @@ output "eventbridge_rule_name" {
 
 output "ssm_document_name" {
     description = "Name of the SSM automation document for restore"
-    value       = aws_ssm_document.restore_runbook.name
+    value       = aws_ssm_document.restore_workspace.name
 }
