@@ -53,7 +53,8 @@ resource "aws_iam_role_policy" "lambda_policy" {
                     "workspaces:CreateWorkspaceImage",
                     "workspaces:DescribeWorkspaceImages",
                     "workspaces:DeleteWorkspaceImage",
-                    "workspaces:DescribeTags"
+                    "workspaces:DescribeTags",
+                    "workspaces:CreateTags"
                 ]
                 Resource = "*"
             },
