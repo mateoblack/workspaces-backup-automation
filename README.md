@@ -86,7 +86,7 @@ aws workspaces create-tags \
 
 **⚠️ CRITICAL LIMITATIONS:**
 - **Destructive Operation**: The original WorkSpace is permanently deleted
-- **Directory Dependency**: Restore only works if the original AWS Directory Service directory still exists
+- **Directory Dependency**: Restore only works if the original directory still exists
 - **User Dependency**: The user account must still exist in the directory
 - **New WorkSpace ID**: You get a new WorkSpace ID (old ID becomes invalid)
 - **Timing**: Restore automation completes in ~3 minutes, but WorkSpace provisioning takes 20-60 minutes
