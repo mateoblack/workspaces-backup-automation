@@ -82,6 +82,15 @@ aws workspaces create-tags \
   --tags Key=AutoBackup,Value=enabled
 ```
 
+**Important:** WorkSpaces must be in AVAILABLE (running) state at backup time (2 AM UTC by default). 
+
+For AUTO_STOP WorkSpaces:
+- They will be skipped if stopped during the backup window
+- **Recommended solutions:**
+  - Use ALWAYS_ON running mode for WorkSpaces requiring daily backups
+  - Implement a Step Functions workflow to start WorkSpaces before backup, then stop them after
+- **Note:** Image creation can take 10-45 minutes and prevents the WorkSpace from being used during that time
+
 ### Restore from Image
 
 **⚠️ CRITICAL LIMITATIONS:**
