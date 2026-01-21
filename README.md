@@ -22,6 +22,8 @@ WorkSpaces API (Create Images)
 Automatic Cleanup (30+ days)
     
 SSM Document → Self-Service Restore
+    ↓
+Creates Bundle → Terminates Old → Creates New WorkSpace
 ```
 
 **Key Features:**
@@ -29,7 +31,13 @@ SSM Document → Self-Service Restore
 - Lambda discovers WorkSpaces tagged with `AutoBackup=enabled`
 - Creates native WorkSpace images (stored in AWS WorkSpaces service)
 - Automatically deletes images older than 30 days (configurable)
-- SSM runbook provides user-friendly restore interface
+- SSM runbook provides restore interface (creates temporary bundle, terminates old WorkSpace, creates new one)
+
+**Important Notes:**
+- Images are tied to the AWS Directory Service directory and user account
+- Restoring requires the original directory and user to still exist
+- Restore process is destructive (terminates the original WorkSpace)
+- New WorkSpace gets a different ID but same user credentials
 
 ## Components
 
@@ -76,17 +84,48 @@ aws workspaces create-tags \
 
 ### Restore from Image
 
+**⚠️ CRITICAL LIMITATIONS:**
+- **Destructive Operation**: The original WorkSpace is permanently deleted
+- **Directory Dependency**: Restore only works if the original AWS Directory Service directory still exists
+- **User Dependency**: The user account must still exist in the directory
+- **New WorkSpace ID**: You get a new WorkSpace ID (old ID becomes invalid)
+- **Timing**: Restore automation completes in ~3 minutes, but WorkSpace provisioning takes 20-60 minutes
+- **No Cross-Directory Restore**: Cannot restore to a different directory or different user
+
+**What Gets Restored:**
+- OS, applications, and system settings from the backup image
+- User profile and data:
+  - All user files (Desktop, Documents, Downloads, etc.)
+  - Application data and settings
+  - Browser bookmarks and saved passwords
+  - Installed user applications
+  - Complete C: drive (Windows) or root volume (Linux)
+  - User volume (D: drive on Windows)
+
+**What Doesn't Get Restored:**
+- Original WorkSpace ID (you get a new one)
+- WorkSpace properties (running mode, auto-stop timeout, etc.)
+- Data stored outside the WorkSpace (network drives, cloud storage)
+
 **Via AWS Console:**
 1. Navigate to Systems Manager → Documents
 2. Search for "RestoreWorkspaceFromImage"
 3. Execute the document
 4. Select the image and WorkSpace to restore
+5. **WARNING**: This will terminate the selected WorkSpace
 
 **Via AWS CLI:**
 ```bash
 aws ssm start-automation-execution \
   --document-name "RestoreWorkspaceFromImage" \
   --parameters "ImageId=wsi-xyz789,WorkspaceId=ws-abc123"
+```
+
+Check restore status:
+```bash
+aws ssm describe-automation-executions \
+  --filters "Key=ExecutionId,Values=<execution-id>" \
+  --query 'AutomationExecutionMetadataList[0].AutomationExecutionStatus'
 ```
 
 ## Configuration
@@ -123,6 +162,31 @@ Check Lambda CloudWatch Logs for:
 - Backup success/failure
 - Images created
 - Images deleted
+
+## ⚠️ Critical Warnings
+
+### Directory Deletion
+**DO NOT delete the AWS Directory Service directory if you have WorkSpace backups.**
+
+If you delete the directory:
+- All backup images become unusable with automated restore
+- Images remain but cannot be deployed via the SSM runbook
+- Images continue to cost money
+
+**Planning to migrate or delete your directory?**
+(e.g., switching from Simple AD to Microsoft Entra ID)
+
+1. **Contact AWS Support BEFORE deleting** the directory
+2. They can help migrate WorkSpace images to the new directory setup
+3. Do not rely on automated restore after directory changes
+
+**If directory already deleted:**
+- Automated restore will not work
+- Contact AWS Support for assistance recovering data from orphaned images
+- Manual recovery is complex and may result in authentication/domain join issues
+
+### User Account Deletion
+Deleting a user from the directory makes their WorkSpace backups unrestorable to that username. The images remain but cannot be deployed.
 
 ## License
 

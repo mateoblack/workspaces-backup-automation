@@ -32,9 +32,12 @@ resource "aws_iam_role_policy" "ssm_automation_role" {
             {
                 Effect = "Allow"
                 Action = [
-                    "workspaces:RebuildWorkspaces",
                     "workspaces:DescribeWorkspaces",
-                    "workspaces:DescribeWorkspaceImages"
+                    "workspaces:DescribeWorkspaceImages",
+                    "workspaces:DescribeWorkspaceBundles",
+                    "workspaces:CreateWorkspaceBundle",
+                    "workspaces:TerminateWorkspaces",
+                    "workspaces:CreateWorkspaces"
                 ]
                 Resource = "*"
             }

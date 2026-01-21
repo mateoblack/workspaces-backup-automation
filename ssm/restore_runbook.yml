@@ -1,23 +1,91 @@
 # ssm/restore_runbook.yml
 schemaVersion: '0.3'
-description: Restore WorkSpace from custom image
+description: Restore WorkSpace from custom image by creating bundle and recreating WorkSpace
 parameters:
   WorkspaceId:
     type: String
-    description: ID of the WorkSpace to restore
+    description: ID of the WorkSpace to restore (will be terminated)
   ImageId:
     type: String
-    description: Image ID to restore from
+    description: Custom image ID to restore from
 mainSteps:
-  - name: RebuildWorkspace
+  - name: GetWorkspaceDetails
     action: 'aws:executeAwsApi'
     inputs:
       Service: workspaces
-      Api: RebuildWorkspaces
-      RebuildWorkspaceRequests:
-        - WorkspaceId: '{{ WorkspaceId }}'
-          ImageId: '{{ ImageId }}'
+      Api: DescribeWorkspaces
+      WorkspaceIds:
+        - '{{ WorkspaceId }}'
     outputs:
-      - Name: RebuildResult
-        Selector: $.FailedRequests
+      - Name: DirectoryId
+        Selector: $.Workspaces[0].DirectoryId
+        Type: String
+      - Name: UserName
+        Selector: $.Workspaces[0].UserName
+        Type: String
+      - Name: BundleId
+        Selector: $.Workspaces[0].BundleId
+        Type: String
+  - name: GetBundleDetails
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: workspaces
+      Api: DescribeWorkspaceBundles
+      BundleIds:
+        - '{{ GetWorkspaceDetails.BundleId }}'
+    outputs:
+      - Name: ComputeType
+        Selector: $.Bundles[0].ComputeType.Name
+        Type: String
+      - Name: UserStorage
+        Selector: $.Bundles[0].UserStorage.Capacity
+        Type: String
+      - Name: RootStorage
+        Selector: $.Bundles[0].RootStorage.Capacity
+        Type: String
+  - name: CreateBundle
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: workspaces
+      Api: CreateWorkspaceBundle
+      BundleName: 'restore-{{ ImageId }}-{{ global:DATE_TIME }}'
+      BundleDescription: 'Temporary bundle for restore'
+      ImageId: '{{ ImageId }}'
+      ComputeType:
+        Name: '{{ GetBundleDetails.ComputeType }}'
+      UserStorage:
+        Capacity: '{{ GetBundleDetails.UserStorage }}'
+      RootStorage:
+        Capacity: '{{ GetBundleDetails.RootStorage }}'
+    outputs:
+      - Name: BundleId
+        Selector: $.WorkspaceBundle.BundleId
+        Type: String
+  - name: WaitForBundle
+    action: 'aws:sleep'
+    inputs:
+      Duration: PT1M
+  - name: TerminateWorkspace
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: workspaces
+      Api: TerminateWorkspaces
+      TerminateWorkspaceRequests:
+        - WorkspaceId: '{{ WorkspaceId }}'
+  - name: WaitForTermination
+    action: 'aws:sleep'
+    inputs:
+      Duration: PT2M
+  - name: CreateWorkspace
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: workspaces
+      Api: CreateWorkspaces
+      Workspaces:
+        - DirectoryId: '{{ GetWorkspaceDetails.DirectoryId }}'
+          UserName: '{{ GetWorkspaceDetails.UserName }}'
+          BundleId: '{{ CreateBundle.BundleId }}'
+    outputs:
+      - Name: NewWorkspaceId
+        Selector: $.PendingRequests[0].WorkspaceId
         Type: String
