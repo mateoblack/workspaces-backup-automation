@@ -1,14 +1,34 @@
 # WorkSpaces Backup Automation
 
-Automated backup and restore solution for AWS WorkSpaces using native image creation.
+Automated backup and restore solution for **Amazon WorkSpaces** using **native WorkSpaces images** as point-in-time backups.
+
+This project provides a **fully automated, self-service backup system** without S3 snapshots or manual intervention.
+
+---
 
 ## Problem
 
-Manual WorkSpaces snapshots to S3 are time-consuming and slow to restore. This solution automates the backup process using AWS WorkSpaces native image functionality for faster, more reliable backups and restores.
+Traditional WorkSpaces backup approaches (manual file copies, S3 syncs, ad-hoc snapshots) are:
+
+* Slow to restore
+* Operationally fragile
+* Incomplete (often miss apps, config, or user state)
+
+There is no first-class “snapshot” button for WorkSpaces.
+
+---
 
 ## Solution
 
-Fully automated WorkSpaces image creation with EventBridge scheduling, Lambda automation, and SSM self-service restore capabilities.
+This solution uses **Amazon WorkSpaces native image creation** as a **point-in-time backup mechanism**, fully automated with:
+
+* **EventBridge** for scheduling
+* **Lambda** for discovery, image creation, and lifecycle management
+* **SSM Automation** for self-service restore
+
+The result is fast, consistent, whole-desktop backups that can be restored without admin intervention.
+
+---
 
 ## Architecture
 
@@ -17,49 +37,69 @@ EventBridge (Daily 2 AM UTC)
     ↓
 Lambda Function
     ↓
-WorkSpaces API (Create Images)
+WorkSpaces API (CreateWorkspaceImage)
     ↓
-Automatic Cleanup (30+ days)
-    
-SSM Document → Self-Service Restore
+Image Lifecycle Cleanup (Retention-based)
+
+SSM Automation Document (Self-Service Restore)
     ↓
-Creates Bundle → Terminates Old → Creates New WorkSpace
+Create Temporary Bundle
+    ↓
+Terminate Old WorkSpace
+    ↓
+Create New WorkSpace from Image
 ```
 
-**Key Features:**
-- EventBridge triggers Lambda daily at 2 AM UTC
-- Lambda discovers WorkSpaces tagged with `AutoBackup=enabled`
-- Creates native WorkSpace images (stored in AWS WorkSpaces service)
-- Automatically deletes images older than 30 days (configurable)
-- SSM runbook provides restore interface (creates temporary bundle, terminates old WorkSpace, creates new one)
+---
 
-**Important Notes:**
-- Images are tied to the AWS Directory Service directory and user account
-- Restoring requires the original directory and user to still exist
-- Restore process is destructive (terminates the original WorkSpace)
-- New WorkSpace gets a different ID but same user credentials
+## Key Features
+
+* Scheduled, fully automated backups
+* Uses **native WorkSpaces images** (no S3 snapshots)
+* Tag-based opt-in (`AutoBackup=enabled`)
+* Configurable retention policy (default: 30 days)
+* Self-service restore via AWS Systems Manager
+* No agents, no user interaction required
+
+---
+
+## Important Notes
+
+* Images are **tied to the AWS Directory Service directory and user**
+* Restores **require the original directory and user to still exist**
+* Restore is **destructive** (old WorkSpace is terminated)
+* Restored WorkSpace receives a **new WorkSpace ID**
+* Credentials and user login remain the same
+
+---
 
 ## Components
 
 ### 1. Lambda Function (`lambda/index.py`)
-- Discovers tagged WorkSpaces
-- Creates WorkSpace images
-- Manages image lifecycle and cleanup
-- Runs on scheduled basis
+
+* Discovers tagged WorkSpaces
+* Creates WorkSpaces images
+* Applies naming, tagging, and retention logic
+* Deletes expired images
 
 ### 2. EventBridge Rule
-- Triggers Lambda on cron schedule
-- Default: `cron(0 2 * * ? *)` (2 AM UTC daily)
 
-### 3. SSM Document (`ssm/restore_runbook.yaml`)
-- Self-service restore interface
-- Rebuilds WorkSpace from selected image
-- Accessible via AWS Console or CLI
+* Triggers the Lambda function on a cron schedule
+* Default: `cron(0 2 * * ? *)` (2 AM UTC daily)
+
+### 3. SSM Automation Document (`ssm/restore_runbook.yaml`)
+
+* Self-service restore interface
+* Creates a bundle from an image
+* Terminates and recreates the WorkSpace
 
 ### 4. Terraform Infrastructure (`main.tf`)
-- Complete infrastructure as code
-- IAM roles and policies
-- All AWS resources configured
+
+* Infrastructure as code
+* IAM roles and least-privilege policies
+* Fully reproducible deployment
+
+---
 
 ## Deployment
 
@@ -70,11 +110,13 @@ terraform plan
 terraform apply
 ```
 
+---
+
 ## Usage
 
 ### Enable Backup for a WorkSpace
 
-Tag your WorkSpace to enable automatic backups:
+Tag a WorkSpace to opt it into automatic backups:
 
 ```bash
 aws workspaces create-tags \
@@ -82,125 +124,174 @@ aws workspaces create-tags \
   --tags Key=AutoBackup,Value=enabled
 ```
 
-**Important:** WorkSpaces must be in AVAILABLE (running) state at backup time (2 AM UTC by default). 
+---
 
-For AUTO_STOP WorkSpaces:
-- They will be skipped if stopped during the backup window
-- **Recommended solutions:**
-  - Use ALWAYS_ON running mode for WorkSpaces requiring daily backups
-  - Implement a Step Functions workflow to start WorkSpaces before backup, then stop them after
-- **Note:** Image creation can take 10-45 minutes and prevents the WorkSpace from being used during that time
+### WorkSpace State Requirements
 
-### Restore from Image
+WorkSpaces **must be in AVAILABLE (running) state** during the backup window.
 
-**⚠️ CRITICAL LIMITATIONS:**
-- **Destructive Operation**: The original WorkSpace is permanently deleted
-- **Directory Dependency**: Restore only works if the original directory still exists
-- **User Dependency**: The user account must still exist in the directory
-- **New WorkSpace ID**: You get a new WorkSpace ID (old ID becomes invalid)
-- **Timing**: Restore automation completes in ~3 minutes, but WorkSpace provisioning takes 20-60 minutes
-- **No Cross-Directory Restore**: Cannot restore to a different directory or different user
+#### AUTO_STOP WorkSpaces
 
-**What Gets Restored:**
-- OS, applications, and system settings from the backup image
-- User profile and data:
-  - All user files (Desktop, Documents, Downloads, etc.)
-  - Application data and settings
-  - Browser bookmarks and saved passwords
-  - Installed user applications
-  - Complete C: drive (Windows) or root volume (Linux)
-  - User volume (D: drive on Windows)
+* Skipped if stopped at backup time
+* Recommended options:
 
-**What Doesn't Get Restored:**
-- Original WorkSpace ID (you get a new one)
-- WorkSpace properties (running mode, auto-stop timeout, etc.)
-- Data stored outside the WorkSpace (network drives, cloud storage)
+  * Use `ALWAYS_ON` for WorkSpaces requiring daily backups
+  * Use Step Functions or SSM to:
 
-**Via AWS Console:**
-1. Navigate to Systems Manager → Documents
-2. Search for "RestoreWorkspaceFromImage"
-3. Execute the document
-4. Select the image and WorkSpace to restore
-5. **WARNING**: This will terminate the selected WorkSpace
+    * Start WorkSpaces before backup
+    * Stop them afterward
 
-**Via AWS CLI:**
+> **Note:** Image creation can take 10–45 minutes and temporarily locks the WorkSpace.
+
+---
+
+## Restore from Image
+
+### ⚠️ Critical Limitations
+
+* **Destructive Operation** – original WorkSpace is permanently deleted
+* **Directory Dependency** – directory must still exist
+* **User Dependency** – user must still exist
+* **New WorkSpace ID** – old ID becomes invalid
+* **Provisioning Time** – 20–60 minutes after automation completes
+* **No Cross-Directory Restore** – same directory and user only
+
+---
+
+### What Gets Restored
+
+* OS, applications, and system configuration
+* Full user profile and data:
+
+  * Desktop, Documents, Downloads
+  * Application data and settings
+  * Browser profiles
+  * Installed user applications
+  * Entire system volume
+  * User volume (D: on Windows)
+
+---
+
+### What Does *Not* Get Restored
+
+* Original WorkSpace ID
+* WorkSpace running mode and auto-stop settings
+* External data (network drives, cloud storage)
+
+---
+
+### Restore via AWS Console
+
+1. Systems Manager → Documents
+2. Open `RestoreWorkspaceFromImage`
+3. Execute automation
+4. Select image and WorkSpace
+5. **Confirm destruction of the existing WorkSpace**
+
+---
+
+### Restore via AWS CLI
+
 ```bash
 aws ssm start-automation-execution \
   --document-name "RestoreWorkspaceFromImage" \
   --parameters "ImageId=wsi-xyz789,WorkspaceId=ws-abc123"
 ```
 
-Check restore status:
+Check status:
+
 ```bash
 aws ssm describe-automation-executions \
   --filters "Key=ExecutionId,Values=<execution-id>" \
   --query 'AutomationExecutionMetadataList[0].AutomationExecutionStatus'
 ```
 
+---
+
 ## Configuration
 
-Customize these variables in `terraform/variables.tf`:
+Edit `terraform/variables.tf`:
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `backup_schedule` | Cron expression for backup timing | `cron(0 2 * * ? *)` |
-| `retention_days` | Days to retain images | `30` |
-| `backup_tag_key` | Tag key to identify WorkSpaces | `AutoBackup` |
-| `backup_tag_value` | Required tag value | `enabled` |
+| Variable           | Description          | Default             |
+| ------------------ | -------------------- | ------------------- |
+| `backup_schedule`  | Backup cron schedule | `cron(0 2 * * ? *)` |
+| `retention_days`   | Image retention      | `30`                |
+| `backup_tag_key`   | Backup tag key       | `AutoBackup`        |
+| `backup_tag_value` | Backup tag value     | `enabled`           |
+
+---
 
 ## Requirements
 
-- **Terraform:** >= 1.0
-- **AWS CLI:** Configured with appropriate credentials
-- **AWS Permissions:** 
-  - `workspaces:*`
-  - `lambda:*`
-  - `events:*`
-  - `ssm:*`
-  - `iam:CreateRole`, `iam:AttachRolePolicy`
+* Terraform ≥ 1.0
+* AWS CLI configured
+* IAM permissions for:
+
+  * WorkSpaces
+  * Lambda
+  * EventBridge
+  * SSM
+  * IAM role creation
+
+---
 
 ## Cost Considerations
 
-- Lambda execution costs (minimal, runs once daily)
-- WorkSpaces image storage (charged per image)
-- No additional S3 storage costs (uses native WorkSpaces images)
+* **Lambda:** negligible (runs once daily)
+* **EventBridge:** negligible
+* **WorkSpaces images:**
+
+  * AWS currently does **not expose a separate pricing line item** for custom WorkSpaces images
+  * No S3 storage is used
+  * Costs are incurred only when **WorkSpaces are running**
+
+> **Recommendation:** Always verify billing behavior in Cost Explorer for your region and account.
+
+---
 
 ## Monitoring
 
-Check Lambda CloudWatch Logs for:
-- Backup success/failure
-- Images created
-- Images deleted
+* CloudWatch Logs (Lambda):
+
+  * Backup success/failure
+  * Image creation
+  * Retention cleanup
+
+---
 
 ## ⚠️ Critical Warnings
 
 ### Directory Deletion
-**DO NOT delete the AWS Directory Service directory if you have WorkSpace backups.**
 
-If you delete the directory:
-- All backup images become unusable with automated restore
-- Images remain but cannot be deployed via the SSM runbook
-- Images continue to cost money
+**DO NOT delete the AWS Directory Service directory if backups exist.**
 
-**Planning to migrate or delete your directory?**
-(e.g., switching from Simple AD to Microsoft Entra ID)
+If deleted:
 
-1. **Contact AWS Support BEFORE deleting** the directory
-2. They can help migrate WorkSpace images to the new directory setup
-3. Do not rely on automated restore after directory changes
+* Images become unusable for automated restore
+* SSM automation will fail
+* Recovery requires AWS Support intervention
 
-**If directory already deleted:**
-- Automated restore will not work
-- Contact AWS Support for assistance recovering data from orphaned images
-- Manual recovery is complex and may result in authentication/domain join issues
+**If planning directory migration (e.g., Simple AD → Entra ID):**
+
+1. Contact AWS Support **before** deleting
+2. Request guidance on image migration
+3. Do not rely on this automation during directory changes
+
+---
 
 ### User Account Deletion
-Deleting a user from the directory makes their WorkSpace backups unrestorable to that username. The images remain but cannot be deployed.
+
+Deleting a directory user makes their images **unrestorable** to that username. Images remain but cannot be deployed.
+
+---
 
 ## License
 
 MIT
 
+---
+
 ## Contributing
 
-Pull requests welcome. Please ensure Terraform formatting with `terraform fmt` before submitting.
+Pull requests welcome.
+Please run `terraform fmt` before submitting.
